@@ -1,6 +1,8 @@
 mod db;
 mod docs;
+mod docstring;
 mod handlers;
+mod imports;
 mod server;
 
 use tower_lsp::{LspService, Server};

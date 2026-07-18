@@ -114,15 +114,17 @@ impl LanguageServer for Backend {
         Ok(handlers::symbols::document_symbols(&doc.tree, &doc.text))
     }
 
-    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let db = self.db.lock().await;
-        Ok(handlers::completion::completion(&db))
+        let uri = params.text_document_position.text_document.uri;
+        Ok(handlers::completion::completion(&db, &uri))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let db = self.db.lock().await;
-        let doc = match db.get(&params.text_document_position_params.text_document.uri) { Some(d) => d, None => return Ok(None) };
-        Ok(handlers::hover::hover(&db, params.text_document_position_params.position, &doc.tree, &doc.text))
+        let uri = params.text_document_position_params.text_document.uri.clone();
+        let doc = match db.get(&uri) { Some(d) => d, None => return Ok(None) };
+        Ok(handlers::hover::hover(&db, params.text_document_position_params.position, &uri, &doc.tree, &doc.text))
     }
 }
 

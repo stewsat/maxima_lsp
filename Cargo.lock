@@ -399,6 +399,7 @@ dependencies = [
  "tracing-subscriber",
  "tree-sitter",
  "tree-sitter-maxima",
+ "url",
 ]
 
 [[package]]
