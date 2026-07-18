@@ -3,6 +3,7 @@ mod docs;
 mod docstring;
 mod handlers;
 mod imports;
+mod lisp_extractor;
 mod server;
 
 use tower_lsp::{LspService, Server};

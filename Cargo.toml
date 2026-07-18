@@ -17,5 +17,6 @@ url = "2"
 tree-sitter = "0.26"
 tree-sitter-maxima = { path = "../tree-sitter-maxima" }
 tracing = "0.1"
+regex = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
