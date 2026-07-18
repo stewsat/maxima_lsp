@@ -50,6 +50,30 @@ vim.filetype.add({
 require('lspconfig').maxima_lsp.setup({})
 ```
 
+### coc.nvim
+
+Add to `:CocConfig` (`coc-settings.json`):
+
+```json
+{
+  "languageserver": {
+    "maxima": {
+      "command": "/path/to/maxima-lsp",
+      "filetypes": ["maxima", "mac", "max", "mx"],
+      "rootPatterns": [".git"]
+    }
+  }
+}
+```
+
+And register the filetypes in your `init.vim`:
+
+```vim
+au BufRead,BufNewFile *.mac,*.max,*.mx,*.maxima set filetype=maxima
+```
+
+A dedicated `coc-maxima` plugin (installable via `:CocInstall`) is planned — see [`coc-maxima`](https://github.com/stewsat/coc-maxima).
+
 ### VS Code
 
 Add to your `settings.json`:
