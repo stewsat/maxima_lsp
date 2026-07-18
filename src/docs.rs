@@ -13,6 +13,64 @@ impl DocEntry {
     pub fn new(sig: &'static str, doc: &'static str, params: &'static [&'static str], returns: &'static str, examples: &'static [&'static str], cat: &'static str) -> Self {
         DocEntry { signature: sig, doc, params, returns, examples, category: cat }
     }
+
+    /// Generate a snippet string for completion: `name(${1:param1}, ${2:param2})`
+    pub fn snippet(&self, name: &str) -> String {
+        // Take the first signature variant (before `  |  `)
+        let sig = self.signature.split("  |  ").next().unwrap_or(self.signature);
+        // Extract the part between parentheses
+        let paren_start = sig.find('(');
+        let paren_end = sig.rfind(')');
+        let params_str = match (paren_start, paren_end) {
+            (Some(s), Some(e)) if s < e => &sig[s + 1..e],
+            _ => "",
+        };
+
+        // Split by comma, extract parameter names
+        let param_names: Vec<&str> = params_str.split(',')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
+            .collect();
+
+        if param_names.is_empty() {
+            return format!("{}()", name);
+        }
+
+        let mut result = format!("{}(", name);
+        for (i, p) in param_names.iter().enumerate() {
+            if i > 0 { result.push_str(", "); }
+            result.push_str(&format!("${{{}:{}}}", i + 1, p));
+        }
+        result.push(')');
+        result
+    }
+}
+
+/// Parse a signature string into name and parameter list for snippet generation
+pub fn parse_signature_for_snippet(sig: &str, name: &str) -> String {
+    let sig = sig.split("  |  ").next().unwrap_or(sig);
+    let paren_start = sig.find('(');
+    let paren_end = sig.rfind(')');
+    let params_str = match (paren_start, paren_end) {
+        (Some(s), Some(e)) if s < e => &sig[s + 1..e],
+        _ => "",
+    };
+
+    let param_names: Vec<&str> = params_str.split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        .collect();
+
+    if param_names.is_empty() {
+        return format!("{}()", name);
+    }
+    let mut out = format!("{}(", name);
+    for (i, pn) in param_names.iter().enumerate() {
+        if i > 0 { out.push_str(", "); }
+        out.push_str(&format!("${{{}:{}}}", i + 1, pn));
+    }
+    out.push(')');
+    out
 }
 
 macro_rules! doc {
