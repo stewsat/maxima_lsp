@@ -38,16 +38,23 @@ pub fn extract_docstrings(source: &str) -> HashMap<String, ExternalDoc> {
     let defs = find_defs(&tree, source);
     let comments = find_all_comments(&tree, source);
 
+    tracing::debug!("extract_docstrings: {} defs, {} comments", defs.len(), comments.len());
+
     for (d_start, _d_end, ref name, ref raw_sig) in &defs {
+        tracing::debug!("  def '{}' at {}", name, d_start);
         let comment = comments.iter()
-            .filter(|(c_end, _, _)| {
-                let ce = *c_end; let ds = *d_start;
-                let gap = &source[ce..ds];
-                gap.chars().all(|c| c == ' ' || c == '\n' || c == '\t' || c == '\r')
+            .filter(|(cs, ce, _)| {
+                let ds = *d_start;
+                if *ce >= ds { return false; }
+                let gap = &source[*ce..ds];
+                let ok = gap.chars().all(|c| c == ' ' || c == '\n' || c == '\t' || c == '\r');
+                tracing::debug!("    comment [{},{}] gap={:?} ok={}", cs, ce, gap, ok);
+                ok
             })
             .last();
 
         if let Some((_, _, comment_text)) = comment {
+            tracing::debug!("  -> matched comment for '{}'", name);
             let parsed = parse_docstring_ext(comment_text, name);
             results.insert(name.clone(), ExternalDoc {
                 name: name.clone(),
@@ -58,6 +65,8 @@ pub fn extract_docstrings(source: &str) -> HashMap<String, ExternalDoc> {
                 examples: parsed.examples,
                 source_file: String::new(),
             });
+        } else {
+            tracing::debug!("  -> no matching comment for '{}'", name);
         }
     }
 

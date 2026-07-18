@@ -48,9 +48,10 @@ impl Database {
             .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
             .unwrap_or_else(|| Path::new(".").to_path_buf());
 
-        let (external_docs, _external_defs) = imports::resolve_imports(text, &base_dir, uri);
+        let (external_docs, external_defs) = imports::resolve_imports(text, &base_dir);
 
-        let definitions = collect_definitions(&tree, text, uri);
+        let mut definitions = collect_definitions(&tree, text, uri);
+        definitions.extend(external_defs);
 
         self.docs.insert(uri.clone(), Document {
             uri: uri.clone(),
@@ -230,15 +231,26 @@ fn load_init_file(parser: &mut Parser) -> (HashMap<String, ExternalDoc>, HashMap
     for path in &candidates {
         if let Ok(content) = std::fs::read_to_string(path) {
             if let Some(tree) = parser.parse(&content, None) {
-                if let Ok(uri) = Url::from_file_path(path) {
-                    let docs = docstring::extract_docstrings(&content);
-                    let defs = collect_definitions(&tree, &content, &uri);
+                    if let Ok(uri) = Url::from_file_path(path) {
+                        let mut docs = docstring::extract_docstrings(&content);
+                        let mut defs = collect_definitions(&tree, &content, &uri);
 
-                    if !docs.is_empty() {
-                        tracing::info!("Loaded {} function(s) from {}", docs.len(), path);
+                        // Also resolve imports from the init file itself (e.g. maxpack imports)
+                        let base = Path::new(&path).parent().unwrap_or(Path::new("."));
+                        let (import_docs, import_defs) = imports::resolve_imports(&content, base);
+                        for (_, doc) in import_docs.iter() {
+                            if doc.source_file.is_empty() {
+                                // Already handled inside resolve_imports
+                            }
+                        }
+                        docs.extend(import_docs);
+                        defs.extend(import_defs);
+
+                        if !docs.is_empty() {
+                            tracing::info!("Loaded {} function(s) from {} (including imports)", docs.len(), path);
+                        }
+                        return (docs, defs);
                     }
-                    return (docs, defs);
-                }
             }
         }
     }
