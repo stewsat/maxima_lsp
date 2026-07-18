@@ -33,6 +33,7 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     }.into(),
                 ),
+                definition_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
@@ -114,6 +115,29 @@ impl LanguageServer for Backend {
         Ok(handlers::symbols::document_symbols(&doc.tree, &doc.text))
     }
 
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let db = self.db.lock().await;
+        let uri = params.text_document_position_params.text_document.uri.clone();
+        let pos = params.text_document_position_params.position;
+        let doc = match db.get(&uri) {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        let byte = lsp_pos_to_byte(&doc.text, pos);
+        let name = byte.and_then(|b| find_identifier_at(doc.tree.root_node(), b, &doc.text));
+
+        if let Some(name) = name {
+            if let Some(loc) = db.goto_definition(&name, &uri) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+            }
+        }
+        Ok(None)
+    }
+
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let db = self.db.lock().await;
         let uri = params.text_document_position.text_document.uri;
@@ -126,6 +150,45 @@ impl LanguageServer for Backend {
         let doc = match db.get(&uri) { Some(d) => d, None => return Ok(None) };
         Ok(handlers::hover::hover(&db, params.text_document_position_params.position, &uri, &doc.tree, &doc.text))
     }
+}
+
+fn find_identifier_at(root: tree_sitter::Node, byte: usize, source: &str) -> Option<String> {
+    let mut best = root;
+    let mut cursor = root.walk();
+    loop {
+        let mut found = false;
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if child.start_byte() <= byte && byte < child.end_byte() {
+                    best = child;
+                    found = true;
+                    break;
+                }
+                if !cursor.goto_next_sibling() { break; }
+            }
+        }
+        if found { continue; }
+        break;
+    }
+    if best.kind() == "identifier" {
+        best.utf8_text(source.as_bytes()).ok().map(|s| s.to_string())
+    } else {
+        None
+    }
+}
+
+fn lsp_pos_to_byte(text: &str, pos: Position) -> Option<usize> {
+    let mut line = 0u32;
+    let mut byte = 0usize;
+    for ch in text.chars() {
+        if line == pos.line {
+            return Some((byte + pos.character as usize).min(text.len()));
+        }
+        if ch == '\n' { line += 1; }
+        byte += ch.len_utf8();
+    }
+    None
 }
 
 fn pos_to_byte(text: &str, pos: Position) -> Option<usize> {
