@@ -57,6 +57,7 @@ fn search_dirs() -> Vec<PathBuf> {
         let mp = Path::new(&home).join(".maxpack");
         if mp.exists() {
             dirs.push(mp.join("latest").join("src"));
+            dirs.push(mp.join("latest").join("pkgs"));
             dirs.push(mp);
         }
     }
@@ -108,16 +109,15 @@ fn find_lisp_imports(source: &str) -> Vec<String> {
     let mut entering = true;
     loop {
         let node = cursor.node();
-        if node.kind() == "list" {
-            let child = node.child(0);
-            if let Some(first) = child {
+        if entering && node.kind() == "list" {
+            let first = node.named_child(0);
+            if let Some(first) = first {
                 if first.kind() == "symbol" {
                     if let Ok(name) = first.utf8_text(source.as_bytes()) {
                         if IMPORT_FUNCS.contains(&name) {
-                            // collect string arguments
-                            let nc = node.child_count();
+                            let nc = node.named_child_count();
                             for ci in 1..nc {
-                                if let Some(arg) = node.child(ci as u32) {
+                                if let Some(arg) = node.named_child(ci as u32) {
                                     if arg.kind() == "string" {
                                         if let Ok(text) = arg.utf8_text(source.as_bytes()) {
                                             let raw = text.trim_matches('"').to_string();
@@ -159,27 +159,25 @@ fn find_maxima_imports(source: &str) -> Vec<String> {
     let mut entering = true;
     loop {
         let node = cursor.node();
-        if node.kind() == "function_call" {
+        if entering && node.kind() == "function_call" {
             let func_name = node
-                .child(0)
+                .named_child(0)
                 .and_then(|n| n.child(0))
                 .and_then(|n| n.utf8_text(source.as_bytes()).ok())
                 .map(|s| s.to_string());
 
             if let Some(ref fname) = func_name {
                 if IMPORT_FUNCS.contains(&fname.as_str()) {
-                    let nc = node.child_count() as usize;
+                    let nc = node.named_child_count() as usize;
                     for ci in 1..nc {
-                        if let Some(ch) = node.child(ci as u32) {
-                            if ch.is_named() {
-                                if let Some(raw) = ch.child(0)
-                                    .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-                                {
-                                    let raw = raw.trim_matches('"').to_string();
-                                    if !raw.is_empty() {
-                                        calls.push(raw);
-                                        break;
-                                    }
+                        if let Some(ch) = node.named_child(ci as u32) {
+                            if let Some(raw) = ch.child(0)
+                                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                            {
+                                let raw = raw.trim_matches('"').to_string();
+                                if !raw.is_empty() {
+                                    calls.push(raw);
+                                    break;
                                 }
                             }
                         }
@@ -342,5 +340,59 @@ fn extract_name(node: Option<tree_sitter::Node>, source: &str) -> Option<String>
             if !c.goto_parent() { return None; }
             if c.goto_next_sibling() { break; }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_maxima_imports_load() {
+        let src = r#"load("utils");"#;
+        let calls = find_maxima_imports(src);
+        assert_eq!(calls, vec!["utils"]);
+    }
+
+    #[test]
+    fn test_find_maxima_imports_import() {
+        let src = r#"import("colors");"#;
+        let calls = find_maxima_imports(src);
+        assert_eq!(calls, vec!["colors"]);
+    }
+
+    #[test]
+    fn test_find_maxima_imports_batch() {
+        let src = r#"batch("setup");"#;
+        let calls = find_maxima_imports(src);
+        assert_eq!(calls, vec!["setup"]);
+    }
+
+    #[test]
+    fn test_find_maxima_imports_multiple() {
+        let src = r#"
+load("utils");
+import("colors");
+batch("setup");
+"#;
+        let calls = find_maxima_imports(src);
+        assert_eq!(calls.len(), 3);
+        assert!(calls.contains(&"utils".to_string()));
+        assert!(calls.contains(&"colors".to_string()));
+        assert!(calls.contains(&"setup".to_string()));
+    }
+
+    #[test]
+    fn test_find_maxima_imports_no_match() {
+        let src = r#"f(x) := x^2$"#;
+        let calls = find_maxima_imports(src);
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn test_find_lisp_imports_load() {
+        let src = r#"(load "numerical/fzero")"#;
+        let calls = find_lisp_imports(src);
+        assert_eq!(calls, vec!["numerical/fzero"]);
     }
 }
