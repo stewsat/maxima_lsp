@@ -210,6 +210,12 @@ pub fn find_imports(source: &str, base_dir: &Path) -> Vec<PathBuf> {
     results
 }
 
+/// Resolve a single import name to a file path using the same search logic.
+pub fn resolve_import_path(name: &str, base_dir: &Path) -> Option<PathBuf> {
+    let mut seen = HashSet::new();
+    resolve_package_path(name, base_dir, &mut seen)
+}
+
 /// Use the appropriate parser based on file extension.
 fn find_import_call_nodes(source: &str) -> Vec<String> {
     let maxima = find_maxima_imports(source);

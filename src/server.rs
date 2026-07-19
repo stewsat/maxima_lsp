@@ -8,8 +8,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use std::path::Path;
 use crate::db::Database;
 use crate::handlers;
+use crate::imports;
 
 pub struct Backend {
     pub client: Client,
@@ -132,11 +134,36 @@ impl LanguageServer for Backend {
         };
 
         let byte = lsp_pos_to_byte(&doc.text, pos);
-        let name = byte.and_then(|b| find_identifier_at(doc.tree.root_node(), b, &doc.text));
 
-        if let Some(name) = name {
-            if let Some(loc) = db.goto_definition(&name, &uri) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+        let maybe_path = byte.and_then(|b| {
+            let node = deepest_node_at(doc.tree.root_node(), b)?;
+            let kind = node.kind();
+            if kind != "string" && kind != "atom" { return None; }
+            let text = node.utf8_text(doc.text.as_bytes()).ok()?;
+            let name = text.trim_matches('"');
+            if name.is_empty() || name.contains('(') || name.contains(')') { return None; }
+            let base_dir = uri.to_file_path().ok()
+                .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
+                .unwrap_or_else(|| Path::new(".").to_path_buf());
+            imports::resolve_import_path(name, &base_dir)
+        });
+        if let Some(path) = maybe_path {
+            if let Ok(url) = tower_lsp::lsp_types::Url::from_file_path(&path) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(
+                    tower_lsp::lsp_types::Location {
+                        uri: url,
+                        range: tower_lsp::lsp_types::Range::default(),
+                    },
+                )));
+            }
+        }
+
+        // Fallback: try to resolve as a symbol definition
+        if let Some(byte) = byte {
+            if let Some(name) = find_identifier_at(doc.tree.root_node(), byte, &doc.text) {
+                if let Some(loc) = db.goto_definition(&name, &uri) {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+                }
             }
         }
         Ok(None)
@@ -154,6 +181,28 @@ impl LanguageServer for Backend {
         let doc = match db.get(&uri) { Some(d) => d, None => return Ok(None) };
         Ok(handlers::hover::hover(&db, params.text_document_position_params.position, &uri, &doc.tree, &doc.text))
     }
+}
+
+fn deepest_node_at(root: tree_sitter::Node, byte: usize) -> Option<tree_sitter::Node> {
+    let mut best = root;
+    let mut cursor = root.walk();
+    loop {
+        let mut found = false;
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                if child.start_byte() <= byte && byte < child.end_byte() {
+                    best = child;
+                    found = true;
+                    break;
+                }
+                if !cursor.goto_next_sibling() { break; }
+            }
+        }
+        if found { continue; }
+        break;
+    }
+    Some(best)
 }
 
 fn find_identifier_at(root: tree_sitter::Node, byte: usize, source: &str) -> Option<String> {
