@@ -66,7 +66,16 @@ pub fn extract_docstrings(source: &str) -> HashMap<String, ExternalDoc> {
                 source_file: String::new(),
             });
         } else {
-            tracing::debug!("  -> no matching comment for '{}'", name);
+            tracing::debug!("  -> no matching comment for '{}', including with default empty doc", name);
+            results.insert(name.clone(), ExternalDoc {
+                name: name.clone(),
+                signature: raw_sig.clone(),
+                doc: format!("{} (user-defined)", name),
+                params: vec![],
+                returns: String::new(),
+                examples: vec![],
+                source_file: String::new(),
+            });
         }
     }
 

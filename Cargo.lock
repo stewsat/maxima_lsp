@@ -399,6 +399,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tree-sitter",
+ "tree-sitter-commonlisp",
  "tree-sitter-maxima",
  "url",
 ]
@@ -856,6 +857,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-commonlisp"
+version = "0.1.0"
+source = "git+https://github.com/stewsat/tree-sitter-commonlisp.git?branch=main#9b3d75b76481a25b0e70ada9f90d192df2a63ef6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,6 +874,7 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 [[package]]
 name = "tree-sitter-maxima"
 version = "0.1.0"
+source = "git+https://github.com/achengli/tree-sitter-maxima.git#845be6e37b5e669658582733ebffb5911bf8e9bc"
 dependencies = [
  "cc",
  "tree-sitter-language",
