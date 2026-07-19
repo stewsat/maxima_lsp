@@ -29,7 +29,11 @@ pub fn hover(db: &Database, pos: Position, uri: &Url, tree: &tree_sitter::Tree, 
 
         md.push_str(&format!("**{}**  ·  {}\n\n", name, entry.category));
         md.push_str(&format!("`{}`\n\n", entry.signature));
-        md.push_str(entry.doc);
+        // Convert newlines to markdown line breaks (two spaces before newline)
+        for line in entry.doc.lines() {
+            md.push_str(line);
+            md.push_str("  \n");
+        }
         md.push('\n');
 
         if !entry.params.is_empty() {

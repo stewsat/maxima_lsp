@@ -39,11 +39,20 @@ pub fn completion(db: &Database, uri: &Url) -> Option<CompletionResponse> {
     for (name, entry) in db.all_user_functions(uri) {
         let snippet = parse_signature_for_snippet(entry.signature, &name);
 
+        let mut md = format!("**{}**\n\n{}", entry.signature, entry.doc);
+        if !entry.params.is_empty() {
+            md.push_str("\n\n**Parameters:**\n");
+            for p in entry.params { md.push_str(&format!("- {}\n", p)); }
+        }
+        if !entry.returns.is_empty() && entry.returns != name {
+            md.push_str(&format!("\n**Returns:** {}\n", entry.returns));
+        }
+
         items.push(CompletionItem {
             label: name.clone(),
             kind: Some(CompletionItemKind::FUNCTION),
             detail: Some("user function".to_string()),
-            documentation: Some(Documentation::String(format!("{}", entry.doc))),
+            documentation: Some(Documentation::String(md)),
             insert_text: Some(snippet),
             insert_text_format: Some(InsertTextFormat::SNIPPET),
             ..Default::default()

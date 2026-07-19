@@ -32,6 +32,21 @@ fn is_function_keyword(kw: &str) -> bool {
     matches!(kw, DEFMFUN | DEFMSPEC | DEFUN)
 }
 
+fn strip_tags(text: &str) -> String {
+    text.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.starts_with("@param") && !l.starts_with("@return") && !l.starts_with("@example"))
+        .map(|l| {
+            if let Some(idx) = l.find(" @param") { &l[..idx] }
+            else if let Some(idx) = l.find(" @return") { &l[..idx] }
+            else if let Some(idx) = l.find(" @example") { &l[..idx] }
+            else { l }
+        })
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn extract_preceding_comment(source: &str, def_start_byte: usize) -> String {
     let before = &source[..def_start_byte];
     let mut doc = String::new();
@@ -55,7 +70,7 @@ fn extract_preceding_comment(source: &str, def_start_byte: usize) -> String {
         }
     }
 
-    doc
+    strip_tags(&doc)
 }
 
 /// Walk the tree-sitter-commonlisp AST to find Lisp definitions.

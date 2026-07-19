@@ -170,10 +170,12 @@ pub fn parse_docstring_ext(comment: &str, _name: &str) -> ParsedDoc {
         if let Some(p) = t.strip_prefix("@param") {
             params.push(p.trim().to_string());
         } else if let Some(r) = t.strip_prefix("@returns") {
-            returns = r.trim().to_string();
+            if returns.is_empty() { returns = r.trim().to_string(); }
+        } else if let Some(r) = t.strip_prefix("@return") {
+            if returns.is_empty() { returns = r.trim().to_string(); }
         } else if let Some(e) = t.strip_prefix("@example") {
             examples.push(e.trim().to_string());
-        } else if !t.is_empty() {
+        } else if !t.is_empty() && !t.starts_with('@') {
             if doc.is_empty() { doc.push_str(t); }
             else { doc.push(' '); doc.push_str(t); }
         }
