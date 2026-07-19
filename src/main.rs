@@ -1,3 +1,7 @@
+// Copyright (c) Stewsat
+// Author: Yassin Achengli Benmouais
+// SPDX-License-Identifier: BSD
+
 mod db;
 mod docs;
 mod docstring;

@@ -1,3 +1,7 @@
+// Copyright (c) Stewsat
+// Author: Yassin Achengli Benmouais
+// SPDX-License-Identifier: BSD
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;

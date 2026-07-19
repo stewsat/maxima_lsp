@@ -1,3 +1,7 @@
+// Copyright (c) Stewsat
+// Author: Yassin Achengli Benmouais
+// SPDX-License-Identifier: BSD
+
 use std::collections::HashMap;
 use std::path::Path;
 use tower_lsp::lsp_types::{self, Url};

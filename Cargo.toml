@@ -2,6 +2,7 @@
 name = "maxima-lsp"
 version = "0.1.0"
 edition = "2021"
+authors = ["Yassin Achengli Benmouais <achengli@github.com>"]
 description = "LSP server for Maxima CAS"
 
 [[bin]]

@@ -1,3 +1,7 @@
+// Copyright (c) Stewsat
+// Author: Yassin Achengli Benmouais
+// SPDX-License-Identifier: BSD
+
 use std::collections::HashMap;
 use tower_lsp::lsp_types::*;
 use tree_sitter::StreamingIterator;
