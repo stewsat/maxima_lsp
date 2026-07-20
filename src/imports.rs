@@ -19,29 +19,71 @@ pub struct ImportSpec {
     pub version: Option<String>,
 }
 
+/// If cursor is inside a load/import/batch argument, return the path/module and its range.
+pub fn load_target_at_position(
+    root: tree_sitter::Node,
+    byte: usize,
+    source: &str,
+) -> Option<(String, tree_sitter::Range)> {
+    let mut node = deepest_node_at(root, byte)?;
+    loop {
+        if node.kind() == "function_call"
+            && byte >= node.start_byte()
+            && byte < node.end_byte()
+        {
+            if let Some(spec) = extract_import_from_call(node, source) {
+                let range = first_load_argument_node(node, source)
+                    .map(|n| n.range())
+                    .unwrap_or_else(|| node.range());
+                return Some((spec.package, range));
+            }
+        }
+
+        if matches!(node.kind(), "string" | "atom" | "identifier") {
+            if let Some(name) = extract_load_argument(node, source) {
+                if is_inside_import_call(node, byte, source) {
+                    return Some((name, node.range()));
+                }
+            }
+        }
+
+        node = node.parent()?;
+    }
+}
+
 /// If cursor is on a module argument of load/import/batch, return the module name.
 pub fn import_module_at_position(
     root: tree_sitter::Node,
     byte: usize,
     source: &str,
 ) -> Option<String> {
-    let mut node = deepest_node_at(root, byte)?;
-    let mut cursor = node.walk();
+    load_target_at_position(root, byte, source).map(|(name, _)| name)
+}
 
-    loop {
-        if node.kind() == "function_call" {
-            if let Some(spec) = extract_import_from_call(node, source) {
-                let start = node.start_byte();
-                let end = node.end_byte();
-                if byte >= start && byte < end {
-                    return Some(spec.package);
-                }
-            }
+fn is_inside_import_call(node: tree_sitter::Node, byte: usize, source: &str) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(call) = ancestor {
+        if call.kind() == "function_call"
+            && byte >= call.start_byte()
+            && byte < call.end_byte()
+            && extract_import_from_call(call, source).is_some()
+        {
+            return true;
         }
-        if !cursor.goto_parent() {
-            break;
+        ancestor = call.parent();
+    }
+    false
+}
+
+fn first_load_argument_node<'a>(
+    call: tree_sitter::Node<'a>,
+    source: &str,
+) -> Option<tree_sitter::Node<'a>> {
+    for ci in 1..call.named_child_count() {
+        let ch = call.named_child(ci as u32)?;
+        if extract_load_argument(ch, source).is_some() {
+            return Some(ch);
         }
-        node = cursor.node();
     }
     None
 }
@@ -416,5 +458,96 @@ mod maxpack_integration {
             defs.keys().collect::<Vec<_>>(),
             docs.keys().collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod goto_load_tests {
+    use super::*;
+    use crate::definitions::deepest_node_at;
+    use crate::paths::PathResolver;
+    use std::path::Path;
+
+    fn parse(src: &str) -> tree_sitter::Tree {
+        let lang: tree_sitter::Language = tree_sitter_maxima::LANGUAGE.into();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&lang).unwrap();
+        parser.parse(src, None).unwrap()
+    }
+
+    fn byte_on_substring(src: &str, needle: &str) -> usize {
+        src.find(needle).unwrap() + needle.len() / 2
+    }
+
+    #[test]
+    fn load_target_at_position_on_quoted_string() {
+        let src = r#"load("draw")$"#;
+        let tree = parse(src);
+        let byte = byte_on_substring(src, "draw");
+        let got = load_target_at_position(tree.root_node(), byte, src);
+        assert_eq!(
+            got.as_ref().map(|(n, _)| n.as_str()),
+            Some("draw"),
+            "byte={byte} deepest={:?}",
+            deepest_node_at(tree.root_node(), byte).map(|n| n.kind())
+        );
+    }
+
+    #[test]
+    fn load_target_at_position_on_absolute_path() {
+        let src = r#"load("/tmp/helper.mac")$"#;
+        let tree = parse(src);
+        let byte = byte_on_substring(src, "helper");
+        let got = load_target_at_position(tree.root_node(), byte, src);
+        assert_eq!(got.as_ref().map(|(n, _)| n.as_str()), Some("/tmp/helper.mac"));
+    }
+
+    #[test]
+    fn load_target_at_position_on_bare_identifier() {
+        let src = r#"load(draw)$"#;
+        let tree = parse(src);
+        let byte = byte_on_substring(src, "draw");
+        let got = load_target_at_position(tree.root_node(), byte, src);
+        assert_eq!(got.as_ref().map(|(n, _)| n.as_str()), Some("draw"));
+    }
+
+    #[test]
+    fn resolve_load_target_relative_path() {
+        let dir = std::env::temp_dir().join("maxima_lsp_goto_load_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("helper.mac");
+        std::fs::write(&file, "f(x) := x$").unwrap();
+
+        let src = r#"load("helper")$"#;
+        let tree = parse(src);
+        let byte = byte_on_substring(src, "helper");
+        let (name, _) = load_target_at_position(tree.root_node(), byte, src).unwrap();
+
+        let mut resolver = PathResolver::discover();
+        assert_eq!(resolver.resolve(&name, &dir), Some(file));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_load_target_absolute_path() {
+        let dir = std::env::temp_dir().join("maxima_lsp_goto_abs_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("helper.mac");
+        std::fs::write(&file, "f(x) := x$").unwrap();
+
+        let path_str = file.to_string_lossy();
+        let src = format!(r#"load("{path_str}")$"#);
+        let tree = parse(&src);
+        let byte = byte_on_substring(&src, "helper");
+        let (name, _) = load_target_at_position(tree.root_node(), byte, &src).unwrap();
+
+        let mut resolver = PathResolver::discover();
+        assert_eq!(
+            resolver.resolve(&name, Path::new("/tmp")),
+            Some(file.clone())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

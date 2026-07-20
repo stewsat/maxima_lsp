@@ -10,9 +10,9 @@ use tower_lsp::{Client, LanguageServer};
 
 use std::path::Path;
 use crate::db::Database;
-use crate::definitions::{deepest_node_at, extract_load_argument, identifier_at_position};
+use crate::definitions::identifier_at_position;
 use crate::handlers;
-use crate::imports::import_module_at_position;
+use crate::imports::load_target_at_position;
 
 pub struct Backend {
     pub client: Client,
@@ -143,42 +143,17 @@ impl LanguageServer for Backend {
                 None => return Ok(None),
             };
             let root = doc.tree.root_node();
-            let mut load_target = None;
-            let mut load_range = None;
-            let mut symbol_name = None;
-
-            if let Some(node) = deepest_node_at(root, byte) {
-                let kind = node.kind();
-                if kind == "string" || kind == "atom" {
-                    if let Some(name) = extract_load_argument(node, &doc.text) {
-                        load_target = Some(name);
-                        load_range = Some(node_to_range(node));
-                    }
-                }
-            }
-
-            if symbol_name.is_none() {
-                symbol_name = identifier_at_position(root, byte, &doc.text);
-            }
-
-            if load_target.is_none() {
-                load_target = import_module_at_position(root, byte, &doc.text);
-                if load_target.is_some() {
-                    if let Some(node) = deepest_node_at(root, byte) {
-                        load_range = Some(node_to_range(node));
-                    }
-                }
-            }
-
-            (load_target, load_range, symbol_name)
+            let load_target = load_target_at_position(root, byte, &doc.text);
+            let symbol_name = identifier_at_position(root, byte, &doc.text);
+            (load_target, symbol_name)
         };
 
-        let (load_target, load_range, symbol_name) = lookup;
+        let (load_target, symbol_name) = lookup;
 
-        if let Some(name) = load_target {
+        if let Some((name, ts_range)) = load_target {
             if let Some(path) = db.resolve_path(&name, &base_dir) {
                 if let Ok(url) = Url::from_file_path(&path) {
-                    let range = load_range.unwrap_or_default();
+                    let range = ts_range_to_lsp(ts_range);
                     return Ok(Some(GotoDefinitionResponse::Scalar(Location { uri: url, range })));
                 }
             }
@@ -207,15 +182,15 @@ impl LanguageServer for Backend {
     }
 }
 
-fn node_to_range(node: tree_sitter::Node) -> Range {
+fn ts_range_to_lsp(range: tree_sitter::Range) -> Range {
     Range {
         start: Position {
-            line: node.start_position().row as u32,
-            character: node.start_position().column as u32,
+            line: range.start_point.row as u32,
+            character: range.start_point.column as u32,
         },
         end: Position {
-            line: node.end_position().row as u32,
-            character: node.end_position().column as u32,
+            line: range.end_point.row as u32,
+            character: range.end_point.column as u32,
         },
     }
 }
