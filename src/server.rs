@@ -10,8 +10,9 @@ use tower_lsp::{Client, LanguageServer};
 
 use std::path::Path;
 use crate::db::Database;
+use crate::definitions::{deepest_node_at, extract_load_argument, identifier_at_position};
 use crate::handlers;
-use crate::imports;
+use crate::imports::import_module_at_position;
 
 pub struct Backend {
     pub client: Client,
@@ -125,47 +126,70 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let db = self.db.lock().await;
+        let mut db = self.db.lock().await;
         let uri = params.text_document_position_params.text_document.uri.clone();
         let pos = params.text_document_position_params.position;
-        let doc = match db.get(&uri) {
-            Some(d) => d,
-            None => return Ok(None),
+        let base_dir = uri.to_file_path().ok()
+            .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
+            .unwrap_or_else(|| Path::new(".").to_path_buf());
+
+        let lookup = {
+            let doc = match db.get(&uri) {
+                Some(d) => d,
+                None => return Ok(None),
+            };
+            let byte = match lsp_pos_to_byte(&doc.text, pos) {
+                Some(b) => b,
+                None => return Ok(None),
+            };
+            let root = doc.tree.root_node();
+            let mut load_target = None;
+            let mut load_range = None;
+            let mut symbol_name = None;
+
+            if let Some(node) = deepest_node_at(root, byte) {
+                let kind = node.kind();
+                if kind == "string" || kind == "atom" {
+                    if let Some(name) = extract_load_argument(node, &doc.text) {
+                        load_target = Some(name);
+                        load_range = Some(node_to_range(node));
+                    }
+                }
+            }
+
+            if symbol_name.is_none() {
+                symbol_name = identifier_at_position(root, byte, &doc.text);
+            }
+
+            if load_target.is_none() {
+                load_target = import_module_at_position(root, byte, &doc.text);
+                if load_target.is_some() {
+                    if let Some(node) = deepest_node_at(root, byte) {
+                        load_range = Some(node_to_range(node));
+                    }
+                }
+            }
+
+            (load_target, load_range, symbol_name)
         };
 
-        let byte = lsp_pos_to_byte(&doc.text, pos);
+        let (load_target, load_range, symbol_name) = lookup;
 
-        let maybe_path = byte.and_then(|b| {
-            let node = deepest_node_at(doc.tree.root_node(), b)?;
-            let kind = node.kind();
-            if kind != "string" && kind != "atom" { return None; }
-            let text = node.utf8_text(doc.text.as_bytes()).ok()?;
-            let name = text.trim_matches('"');
-            if name.is_empty() || name.contains('(') || name.contains(')') { return None; }
-            let base_dir = uri.to_file_path().ok()
-                .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
-                .unwrap_or_else(|| Path::new(".").to_path_buf());
-            imports::resolve_import_path(name, &base_dir)
-        });
-        if let Some(path) = maybe_path {
-            if let Ok(url) = tower_lsp::lsp_types::Url::from_file_path(&path) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(
-                    tower_lsp::lsp_types::Location {
-                        uri: url,
-                        range: tower_lsp::lsp_types::Range::default(),
-                    },
-                )));
-            }
-        }
-
-        // Fallback: try to resolve as a symbol definition
-        if let Some(byte) = byte {
-            if let Some(name) = find_identifier_at(doc.tree.root_node(), byte, &doc.text) {
-                if let Some(loc) = db.goto_definition(&name, &uri) {
-                    return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+        if let Some(name) = load_target {
+            if let Some(path) = db.resolve_path(&name, &base_dir) {
+                if let Ok(url) = Url::from_file_path(&path) {
+                    let range = load_range.unwrap_or_default();
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location { uri: url, range })));
                 }
             }
         }
+
+        if let Some(name) = symbol_name {
+            if let Some(loc) = db.goto_definition(&name, &uri) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
+            }
+        }
+
         Ok(None)
     }
 
@@ -183,51 +207,16 @@ impl LanguageServer for Backend {
     }
 }
 
-fn deepest_node_at(root: tree_sitter::Node, byte: usize) -> Option<tree_sitter::Node> {
-    let mut best = root;
-    let mut cursor = root.walk();
-    loop {
-        let mut found = false;
-        if cursor.goto_first_child() {
-            loop {
-                let child = cursor.node();
-                if child.start_byte() <= byte && byte < child.end_byte() {
-                    best = child;
-                    found = true;
-                    break;
-                }
-                if !cursor.goto_next_sibling() { break; }
-            }
-        }
-        if found { continue; }
-        break;
-    }
-    Some(best)
-}
-
-fn find_identifier_at(root: tree_sitter::Node, byte: usize, source: &str) -> Option<String> {
-    let mut best = root;
-    let mut cursor = root.walk();
-    loop {
-        let mut found = false;
-        if cursor.goto_first_child() {
-            loop {
-                let child = cursor.node();
-                if child.start_byte() <= byte && byte < child.end_byte() {
-                    best = child;
-                    found = true;
-                    break;
-                }
-                if !cursor.goto_next_sibling() { break; }
-            }
-        }
-        if found { continue; }
-        break;
-    }
-    if best.kind() == "identifier" {
-        best.utf8_text(source.as_bytes()).ok().map(|s| s.to_string())
-    } else {
-        None
+fn node_to_range(node: tree_sitter::Node) -> Range {
+    Range {
+        start: Position {
+            line: node.start_position().row as u32,
+            character: node.start_position().column as u32,
+        },
+        end: Position {
+            line: node.end_position().row as u32,
+            character: node.end_position().column as u32,
+        },
     }
 }
 

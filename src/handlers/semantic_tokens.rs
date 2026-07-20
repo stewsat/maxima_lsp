@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use tower_lsp::lsp_types::*;
 use tree_sitter::StreamingIterator;
 
-const HIGHLIGHTS_QUERY: &str = include_str!("../../../tree-sitter-maxima/queries/highlights.scm");
+const HIGHLIGHTS_QUERY: &str = tree_sitter_maxima::HIGHLIGHTS_QUERY;
 
 pub fn legend() -> SemanticTokensLegend {
     SemanticTokensLegend {

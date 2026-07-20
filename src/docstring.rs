@@ -94,7 +94,7 @@ fn find_defs(tree: &tree_sitter::Tree, source: &str) -> Vec<(usize, usize, Strin
         let node = cursor.node();
         if node.kind() == "binary_expression" {
             if let Some(op) = node.child(1) {
-                if op.kind() == ":=" || op.kind() == "::=" {
+                if matches!(op.kind(), ":=" | "::=" | ":" | "::") {
                     let func_text = node.child(0)
                         .and_then(|n| n.utf8_text(source.as_bytes()).ok())
                         .unwrap_or("").to_string();

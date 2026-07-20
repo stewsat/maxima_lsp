@@ -5,7 +5,7 @@
 use tower_lsp::lsp_types::*;
 use tree_sitter::StreamingIterator;
 
-const TAGS_QUERY: &str = include_str!("../../../tree-sitter-maxima/queries/tags.scm");
+const TAGS_QUERY: &str = tree_sitter_maxima::TAGS_QUERY;
 
 pub fn document_symbols(tree: &tree_sitter::Tree, source: &str) -> Option<DocumentSymbolResponse> {
     let lang: tree_sitter::Language = tree_sitter_maxima::LANGUAGE.into();
