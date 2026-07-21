@@ -22,3 +22,8 @@ tracing = "0.1"
 regex = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
+
+[dev-dependencies]
+tree-sitter = "0.26"
+tree-sitter-maxima = { git = "https://github.com/stewsat/tree-sitter-maxima.git" }
+tower-lsp = "0.19"

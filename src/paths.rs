@@ -27,12 +27,23 @@ struct SearchTemplate {
 }
 
 impl PathResolver {
+    /// Discover Maxima and maxpack using `$HOME` / `$USERPROFILE`.
     pub fn discover() -> Self {
-        let maxima_cmd = find_maxima_executable();
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .ok()
             .map(PathBuf::from);
+        match home {
+            Some(home) => Self::with_home(&home),
+            None => Self::with_home(Path::new(".")),
+        }
+    }
+
+    /// Build a resolver rooted at `home` (uses `home/.maxpack` and `home/.maxima`).
+    ///
+    /// Useful for tests that synthesize a maxpack layout under a temp directory.
+    pub fn with_home(home: &Path) -> Self {
+        let maxima_cmd = find_maxima_executable();
 
         let mut resolver = Self {
             maxima_cmd: maxima_cmd.clone(),
@@ -48,17 +59,13 @@ impl PathResolver {
         }
 
         if resolver.templates.is_empty() {
-            if let Some(ref home) = home {
-                resolver.templates.extend(fallback_templates(home));
-            }
+            resolver.templates.extend(fallback_templates(home));
         }
 
-        if let Some(ref home) = home {
-            resolver.maxpack_root = Some(home.join(".maxpack"));
-            resolver.maxpack_packages = discover_maxpack_packages(home);
-            if resolver.maxima_userdir.is_none() {
-                resolver.maxima_userdir = Some(home.join(".maxima"));
-            }
+        resolver.maxpack_root = Some(home.join(".maxpack"));
+        resolver.maxpack_packages = discover_maxpack_packages(home);
+        if resolver.maxima_userdir.is_none() {
+            resolver.maxima_userdir = Some(home.join(".maxima"));
         }
 
         if let Some(ref cmd) = maxima_cmd {
@@ -180,7 +187,12 @@ impl PathResolver {
     }
 
     fn load_from_maxima(&mut self, cmd: &Path) {
-        let script = r#"block([paths],
+        // `linel` is set very high so Maxima's `print` never wraps long paths
+        // onto a second line (which would drop the `TEMPLATE:`/`USERDIR:` prefix
+        // and lose the template). Long install prefixes — Homebrew, Nix, source
+        // builds — trigger this; short ones (apt/dnf under /usr) would hide it.
+        let script = r#"linel: 1000000$
+block([paths],
   print("USERDIR:", maxima_userdir),
   paths : append(append(file_search_lisp, file_search_maxima), file_search_demo),
   for p in paths do (
@@ -213,7 +225,7 @@ impl PathResolver {
     fn maxima_file_search(&self, name: &str) -> Option<PathBuf> {
         let cmd = self.maxima_cmd.as_ref()?;
         let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!(r#"print(file_search("{escaped}"))$"#);
+        let script = format!(r#"linel: 1000000$ print(file_search("{escaped}"))$"#);
         let output = run_maxima_batch(cmd, &script);
         parse_maxima_file_path(&output)
     }
@@ -450,9 +462,31 @@ fn find_maxima_executable() -> Option<PathBuf> {
         }
     }
 
-    for candidate in ["maxima", "rmaxima", "xmaxima", "smaxima"] {
+    const CANDIDATES: &[&str] = &["maxima", "rmaxima", "xmaxima", "smaxima"];
+
+    for candidate in CANDIDATES {
         if let Some(path) = find_on_path(candidate) {
             return Some(path);
+        }
+    }
+
+    // Editors frequently spawn the LSP without the user's interactive PATH, so
+    // probe common install prefixes as a fallback. Covers apt/dnf (/usr),
+    // source builds (/usr/local), Homebrew (/opt/homebrew on Apple Silicon,
+    // /usr/local on Intel), MacPorts (/opt/local), and snap (/snap/bin).
+    const COMMON_DIRS: &[&str] = &[
+        "/usr/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/opt/local/bin",
+        "/snap/bin",
+    ];
+    for dir in COMMON_DIRS {
+        for candidate in CANDIDATES {
+            let path = Path::new(dir).join(candidate);
+            if path.is_file() {
+                return Some(path);
+            }
         }
     }
 

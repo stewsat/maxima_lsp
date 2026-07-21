@@ -2,17 +2,7 @@
 // Author: Yassin Achengli Benmouais
 // SPDX-License-Identifier: BSD
 
-mod db;
-mod definitions;
-mod docs;
-mod docstring;
-mod handlers;
-mod imports;
-mod lisp_extractor;
-mod paths;
-mod parser_audit;
-mod server;
-
+use maxima_lsp::server;
 use tower_lsp::{LspService, Server};
 
 #[tokio::main]
