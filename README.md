@@ -136,23 +136,24 @@ RUST_LOG=debug cargo run
 
 ## Architecture
 
-```
-stdin  ──►  tower-lsp  ──►  Backend  ──►  tree-sitter
-stdout ◄──  (LSP)                 │            │
-                                  │            ▼
-                                  │       queries/
-                                  │       ├── highlights.scm
-                                  │       ├── locals.scm
-                                  │       ├── tags.scm
-                                  │       ├── folds.scm
-                                  │       └── injections.scm
-                                  │
-                                  ├── docs.rs (built-in functions)
-                                  └── handlers/
-                                      ├── semantic_tokens.rs
-                                      ├── symbols.rs
-                                      ├── completion.rs
-                                      └── hover.rs
+```mermaid
+flowchart LR
+    stdin -->|LSP request| tower_lsp[tower-lsp]
+    tower_lsp -->|LSP response| stdout
+    tower_lsp --> Backend
+    Backend --> tree_sitter[tree-sitter]
+    tree_sitter -.-> queries_dir[queries/]
+    queries_dir --- highlights[highlights.scm]
+    queries_dir --- locals[locals.scm]
+    queries_dir --- tags[tags.scm]
+    queries_dir --- folds[folds.scm]
+    queries_dir --- injections[injections.scm]
+    Backend --- docs[docs.rs<br/>built-in functions]
+    Backend --- handlers_dir[handlers/]
+    handlers_dir --- semantic_tokens[semantic_tokens.rs]
+    handlers_dir --- symbols[symbols.rs]
+    handlers_dir --- completion[completion.rs]
+    handlers_dir --- hover[hover.rs]
 ```
 
 ## Related
